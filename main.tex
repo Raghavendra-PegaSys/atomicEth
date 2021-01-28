@@ -1,0 +1,40 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+
+\title{Ethereum2: Cross-shard User-level Atomic ETH transfer algorithm}
+\author{Raghavendra Ramesh}
+\newcommand{eth}[][]{\textit{ETH}}
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+The execution in Ethereum 1 happens in a fixed fashion using EVM and fixed notion of account id and balances. The plan is to generalise this notion of execution environment (EE) in Ethereum 2. For instance, an environment similar to Bitcoin can be hosted on Ethereum 2 as one execution environment.  Some EEs could use another virtual machine instead of EVM. In such a scenario, the cross-shard cross execution environment \eth transfers become necessary. This paper presents an algorithm for atomic user-level ETH transfers between two execution environments hosted on two different shards.
+
+Because one execution environment is complete in its own means, we need to maintain \eth balances of each of these execution environments separately. An EE could provide another currency on top of \eth. Users are associated with EEs in the sense that an EE serves as a home for multiple users. So, we will have EE's, their \eth balances, users inside EE's and users' balances.
+
+The problem of transferring value from a user $X$ of EE $A$ to another user $Y$ of another EE $B$ involves two aspects:
+\begin{enumerate}
+    \item the transfer of \eth from EE $A$ to EE $B$, and
+    \item the transfer of values from the user $X$ to user $Y$.
+\end{enumerate}
+Note that Ethereum 2 has 64 shards. So, the execution enviornments and users of them are distributed across multiple shards. So, the actual problem is the cross-shard cross-EE atomic \eth transfers across users.
+
+Vitalik Buterin proposed a {\em netted balance approach} (\cite{netted-balance}) for atomic cross-shard transfer of \eth between EEs. This paper proposes user-level atomic cross-shard transfer on top of this netted balance approach of EE-level transfers.
+
+\section{Netted balance approach}
+\label{sec:netted-balance}
+Vitalik Buterin proposed a netted balance approach (~\cite{netted-balance}) for atomic cross-shard transfer of \eth between EEs. The straight-forward idea is for every shard to maintain its balance of every EE. The netted balance approach distributes this EE-level balance in the following way. Here, for an EE, every shard maintains the partial balances of this EE on every other shard. For example 
+
+\section{Atomic User-level Transfer}
+\label{sec:atomic-user}
+
+\section{Threat Analysis}
+\label{sec:threat}
+
+\section{Conclusion}
+
+
+\bibliography{}
+\end{document}
