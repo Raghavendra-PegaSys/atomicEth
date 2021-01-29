@@ -6,6 +6,7 @@
 
 \newcommand{\eth}[0]{ETH~}
 \newcommand{\tocredit}[0]{{\bf ToCredit}~}
+\newcommand{\bitfieldmap}[0]{\ensuremath{BitFieldMap}~}
 
 \begin{document}
 
@@ -40,16 +41,17 @@ This idea naturally extends to cross EE transfers too.
 
 \section{Atomic User-level Transfer}
 \label{sec:atomic-user}
-The core idea of this proposal is to extend the idea of distribution of EE-balances to outstanding user-level credits and outstanding user-level reverts. The netted state (extends the netted balance) is used as a channel to communicate outstanding credits to recipient shard and outstanding reverts to the sender shard.
+The core idea of this proposal is to extend and leverage the netted-balance approach of distribution of EE-balances to outstanding user-level credits and outstanding user-level reverts. The netted state (extends the netted balance) is used as a channel to communicate outstanding credits to recipient shard and outstanding reverts to the sender shard. We now describe the approach in full detail now.
+
+\subsection{Preliminaries}
 
 For $i$ in natural numbers, let
-\begin{itemize}
-\item $s_i$'s denote shards, 
-\item $E_i$'s denote execution environments,
-\item $a_i, b_i$'s denote users.
-\end{itemize}
+$s_i$'s denote shards, 
+$E_i$'s denote execution environments,
+$a_i, b_i$'s denote users.
+We use the concept of {\em System Event messages} from~\cite{peter-cross-shard}. These messages are similar to application event messages in contract code, but are unforgeable by the application. 
 
-We use the concept of {\em System Event messages} from~\cite{peter-cross-shard}. These messages are similar to application event messages in contract code, but are unforgeable by the application. We have one System Event message: \tocredit. It includes:
+In our approach, we use one System Event message called \tocredit, which includes:
 \begin{itemize}
 \item sender details (shard-id, EE-id, user address), 
 \item recipient details (shard-id, EE-id, user address), 
@@ -58,43 +60,58 @@ We use the concept of {\em System Event messages} from~\cite{peter-cross-shard}.
 \item an index number starting from 0 (for every block).
 \end{itemize}
 
-\includegraphics{state.jpg}
+\subsection{Transactions}
 
-We have two kinds of transactions. 
-\begin{description}
-\item[Cross-shard debit transfer]
-	- $a_i \stackrel{x_i}{\Longrightarrow} b_i$, cross-shard transfer of $x_i$ \eth from the user $a_i$ on $(s_1,E_1)$ to the user $b_i$ on $(s_2,E_2)$. 
-   - Signed by the sender $a_i$. Signature is stored in the fields $v, r$ and $s$ as in Ethereum 1.
-	- Submitted on sender shard.
-	- Contains a unique transaction identifier.
-	- Emits a **ToCredit** System event on success
-\item[Cross-shard credit transfer]
-	- $a_i \stackrel{x_i}{\longrightarrow} b_i$,  credit transfer of $x_i$ \eth to $b_i$ on $(s_2,E_2)$, which is from $a_i$ on $(s_1, E_1)$.
-	- Submitted on recipient shard.
-	- Includes the **ToCredit** System Event and the Merkle Proof for it.
-\end{description}
+A cross-shard transfer of $x$ \eth from an user $a_i$ on $(s_1,E_1)$ to an user $b_i$ on $(s_2,E_2)$ is split by the system into two transactions in a natural way: a cross-shard debit transfer ($\Longrightarrow$) and a cross-shard credit transfer ($\longrightarrow$), corresponding to deducting $x$ on the source side and adding $x$ to the destination side respectively. 
 
-We now present the main contribution that is the algorithm for the block proposer. WLOG assume that a Block Proposer (BP) is proposing a block numbered k on shard $s_1$. Then BP executes the following algorithm for every EE $E_i$.
+{\bf Cross-shard debit transfer} transaction is signed by the sender $a_i$, and the signature is stored in the fields $v, r$ and $s$ as in Ethereum 1. It contains a unique transaction identifier. It is submitted on sender shard, and emits a \tocredit System event on success.
 
-1. Obtain realState($s_1, E_i$). 
-	- Ensure that the obtained $s_i$.partState from shards $s_i$, $1 \le i \le n$ are correct using Merkle Proofs and crosslinks
-2. realBalance$(s_1,E_i)$ = $\sum_i s_i$.partState[$s_1,E_i$].balance;
-For every $s',E'$, net($s',E'$) = 0;  
-3. Update *BitFieldMap*
-	- Add entries for outstanding credits: 
-[$s'$, $E'$, (k-1)] $\mapsto$ {$e \mapsto 0$ | $e \in \bigcup_i s_i$.partState[$s_1,E_i$].credits}
-	- Kick out expired credits: If there is an entry with [$s',E'$,*key*] such that *key* + *timeBound* == k
-		- $s_1$.partState[$s',E'$].reverts = { e | (e $\mapsto$ 0) \in *BitFieldMap(key)* AND sender(e) $\in (s',E')$ }
-		- Delete the entry with *key*
-		- net($s',E'$) = $\Sigma_e ~x_e$ where e $\in s_1$.partState[$s',e'$].reverts and $x_e$ denotes transfer amount
-4. Process user-level reverts
-	- reverts = $\bigcup_i s_i$.partState[$s_1,E_i$].reverts
-	- for each $t_i \in$ reverts
-		- sender($t_i$).balance += $x_i$
-5. For every pair $(s_2,E_j)$
-	1. Select transactions $t_1...t_n$ to be included in the block
-	2. $s_1$.partState[$s_2,E_j$].credits = $\emptyset$;  $~~s_1$.partState[$s_2,E_j$].reverts = $\emptyset$; 
-	3. For every $i$ in 1 ... n: 
+{\bf Cross-shard credit transfer} transaction is submitted on recipient shard, and includes the \tocredit System Event and the Merkle Proof for it.
+
+<<TODO: Why signing is not necessary?>>
+
+\subsection{Shard State}
+TODO: Explanation
+- full state
+- part state
+- Bitfield map - Credits map. Explain BitCheck or membership check.
+  
+- Explain timeBound in terms of blocks bound
+
+\includegraphics[scale=0.5]{state.jpg}
+
+\subsection{Block Proposer Algorithm}
+We now present the main contribution: the algorithm for the block proposer in handling cross-shard cross-EE transfers with the guarantee of atomicity. Without loss of generality we assume that a Block Proposer (BP) is proposing a block numbered $k$ on shard $s_1$. Then BP executes the following steps for every EE $E_i$. 
+
+\begin{enumerate}
+\item Obtain the part states of $E_i$ from every shard. Ensure that the obtained $s_i.partState$s,  $1 \le i \le n$, are correct using Merkle Proofs and crosslinks.
+Compute the real balance of $E_i$ on $s_1$ using 
+\[
+	realBalance(s_1,E_i) = \sum_i s_i.partState[s_1,E_i].balance.
+\]
+Maintain a $revertsAmount$ map from every shard $s$ and EE $E$ to number.  Initialise every value of this map to $0$, i.e., for every shard $s$ and every EE $E$, we have $revertsAmount(s,E) = 0$;  
+
+\item Update $\bitfieldmap$
+    \begin{itemize}
+        \item Add entries for outstanding credits: 
+        $s', E', (k-1)] \mapsto \{e \mapsto 0 | e \in \bigcup_i s_i.partState[s_1,E_i].credits\}$
+        \item Kick out expired credits: If there is an entry with $[s',E',key]$ such that $key + timeBound == k$ then do:
+        \begin{itemize}
+            \item Update $s_1.partState[s',E'].reverts := \{ e | (e \mapsto 0) \in \bitfieldmap(key) \wedge sender(e) \in (s',E') \}$.
+            \item Delete the entry with $key$.
+            \item Update $net(s',E') := \Sigma_e ~x_e$ where $e \in s_1.partState[s',e'].reverts$ and $x_e$ denotes the transfer amount.
+        \end{itemize}
+    \end{itemize}
+\item Process user-level reverts
+    \begin{itemize}
+	    \item Update $reverts := \bigcup_i s_i.partState[s_1,E_i].reverts$
+	    \item For each $t_i \in reverts$, $sender(t_i).balance += x_i$.
+    \end{itemize}
+\item For every pair $(s_2,E_j)$
+    \begin{enumerate}
+	\item Select transactions $t_1,\ldots,t_n$ to be included in the block
+	\item $s_1$.partState[$s_2,E_j$].credits = $\emptyset$;  $~~s_1$.partState[$s_2,E_j$].reverts = $\emptyset$; 
+	\item For every $i$ in 1 ... n: 
 		- If $t_i : a_i \stackrel{x_i}{\Longrightarrow} b_i$ AND realBalance($s_1,E_i$) > net($s_2,E_j$) + $x_i$
 			- include $t_i$ to the block
 			- if $t_i$ executes successfully 
@@ -113,9 +130,12 @@ For every $s',E'$, net($s',E'$) = 0;
 				- if failure 
 					- $s_1$.partState[$s_2,E_j$].reverts $~~\cup=~$ {$t_i$};
 					- net($s_2,E_j$) += $x_i$ 
-	4. Update EE-level transfer
+	\item Update EE-level transfer
 		- $s_1$.partState[$s_1,E_i$].balance -= net($s_2,E_j$); 
 		- $s_1$.partState[$s_2,E_j$].balance += net($s_2,E_j$);
+    \end{enumerate}
+\end{enumerate}
+
 
 Remarks
 1. Before processing a pending cross-shard credit transfer transaction $b_i \stackrel{x_i}{\longrightarrow} a_i$, the EE-level transfer is already complete. 
@@ -146,13 +166,13 @@ Benefits
 Demerits
 In every block, a BP has to get the outstanding credits and reverts from every other shard. This is inherited from the netted balance approach, where a BP requires the netted balances from all shards. However, it is restricted to the sender EE's that are derived from the user-level transactions included in the block. The problem is aggravated here, because we would need to request from all EE's, even for the EE's not touched in this block.
 
-Examples
-Optimistic case
-% ![Optimistic|690x398, 75%](upload://4cVYckcKaMPXV4cdlW3wffGGKxt.jpeg) 
-When Debit fails
-% ![Debit|690x421, 75%](upload://7lUavOrUO6un5JmuBsgVodZmBRE.jpeg) 
-When Credit fails
-% ![Credit|690x339, 75%](upload://oX10Mm1NpllfnBLPWhG9Dopyoa8.jpeg) 
+\section{Scenarios}
+\subsection{Optimistic case}
+\includegraphics[scale=0.5]{OptmisiticCase.jpg}
+\subsection{When Debit fails}
+\includegraphics[scale=0.5]{Credit-2.jpg}
+\subsection{When Credit fails}
+\includegraphics[scale=0.5]{Debit.jpg}
 
 Future work
 * Optimise the space requirement for storing outstanding credits and outstanding reverts.
@@ -182,7 +202,7 @@ set of reverts, or
 not update or wrongly update BitFieldMap with impending credits, or
 not process or wrongly process impending reverts, or
 not emit or emit with incorrect data the ToCredit System Event
-not SetBit(t_i), or
+not $SetBit(t_i)$, or
 not include a revert for a failed credit transaction, or
 not affect appropriate EE-level transfer,
 his / her block will be invalidated by the attesters, assuming that the two-thirds of the attesters are honest.
