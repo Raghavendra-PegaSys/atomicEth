@@ -71,14 +71,21 @@ A cross-shard transfer of $x$ \eth from an user $a_i$ on $(s_1,E_1)$ to an user 
 <<TODO: Why signing is not necessary?>>
 
 \subsection{Shard State}
-TODO: Explanation
-- full state
-- part state
+In the netted-balance approach the storage of part-balances of single EE on shards can be seen as a tuple (or a row) indexed by shards. The part-balances of different EE's can be seen as a matrix $partBalance$ of size number of shards $\times$ number of EE's. Here, $partBalance[s_i,E_j]$ gives the part-balance of EE $E_j$ on shard $s_i$. Every shard stores this  $partBalance$ matrix in its state. The real balance of EE $E_j$ on shard $s_i$ is given by : 
+\[
+	realBalance[s_i,E_j] = \sum_k s_k.partBalance[s_k,E_j].
+\]
+
+Our approach expands this $partBalance$ matrix to a $partState$ matrix, where each cell of this matrix is now a triple of $(partBalance$, $toBeImportedCredits$, $toBeImportedReverts)$. In other words, we add two extra pieces of information on top of $partBalance$, i.e., $toBeImportedCredits$ and $toBeImportedReverts$, as shown in Figure~\ref{fig:shardstate}.
+
 - Bitfield map - Credits map. Explain BitCheck or membership check.
   
 - Explain timeBound in terms of blocks bound
 
+\begin{figure}[h]
 \includegraphics[scale=0.5]{state.jpg}
+\caption{Shard State\label{fig:shardstate}}
+\end{figure}
 
 \subsection{Block Proposer Algorithm}
 We now present the main contribution: the algorithm for the block proposer in handling cross-shard cross-EE transfers with the guarantee of atomicity. Without loss of generality we assume that a Block Proposer (BP) is proposing a block numbered $k$ on shard $s_1$. Then BP executes the following steps for every EE $E_i$. 
