@@ -14,7 +14,9 @@
 \maketitle
 
 \section*{Abstract}
-We address the problem of atomic cross shard value transfer in Ethereum 2. We leverage on Ethereum 2 architecture, more specificially on Beacon chain and crosslinks, and propose a solution on top of the netted-balance approach that was proposed for EE-level atomic \eth transfers. We split a cross-shard transfer into two transactions: a debit and a credit. First, the debit transaction is processed at the source shard. The corresponding credit transaction is processed at the destination shard in a subsequent block. We use {\em netted} shard states as channels to communicate pending credits and pending reverts. We discuss various scenarios of debit failures and credit failures, and show our approach ensures atomicity.
+We address the problem of atomic cross shard value transfer in Ethereum 2. We leverage on Ethereum 2 architecture, more specificially on Beacon chain and crosslinks, and propose a solution on top of the netted-balance approach that was proposed for EE-level atomic \eth transfers. We split a cross-shard transfer into two transactions: a debit and a credit. First, the debit transaction is processed at the source shard. The corresponding credit transaction is processed at the destination shard in a subsequent block. We use {\em netted} shard states as channels to communicate pending credits and pending reverts. We discuss various scenarios of debit failures and credit failures, and show our approach ensures atomicity. 
+
+The benefits of our approach are that we do not use any locks nor impose any constraints on the Block Proposer to select specific transactions. However we inherit the limitation of an expensive operation from the netted-balance approach of querying partial states from all other shards.
 
 \section{Introduction}
 
@@ -170,34 +172,33 @@ For every shard $s$ and every EE $E$, set $s_1.EETransferAmount[s,E]$ to $0$.
 \end{enumerate}
 
 
-Remarks
-1. Before processing a pending cross-shard credit transfer transaction $b_i \stackrel{x_i}{\longrightarrow} a_i$, the EE-level transfer is already complete. 
-2. User-level reverts happen in the immediate next slot after a failed or expired credit transfer. The EE-level revert happens in the same slot as the failed / expired credit transfer.
-3. Transaction identifiers need to be unique inside the *time-bound*
-4. There is a corner case where the sender disappears by the time revert happens, then we end up in a state where there is \eth loss at user-level, but not at EE-level. This appears to be a correct state when such a  situation happens.
-5. A transaction is not included in a block if the EE does not have sufficient balance. Note that EE balance check is done even for credit transfers because of potential reverts.
+\subsection{Features of the algorithm}
+Let us visit some of the notable features of the above algorithm.
+\begin{enumerate}
+\item Before processing a pending cross-shard credit transfer transaction $b_i \stackrel{x_i}{\longrightarrow} a_i$, the EE-level transfer is already complete. 
+\item User-level reverts happen in the immediate next slot after a failed or an expired credit transfer. The EE-level revert happens in the same slot as the failed / expired credit transfer. This technique pushes the revert to the EE host functions instead of treating them as separate transactions. This avoids complex issues like revert timeouts and revert gas pricing.
+\item Transaction identifiers need to be unique inside the time-out blocks window.
+\item There is a corner case where the sender disappears by the time revert happens, then we end up in a state where there is \eth loss at user-level, but not at EE-level. We feel this is the best state to be in when such a situation happens.
+\item A transaction is not included in a block if the EE does not have sufficient balance. Note that EE balance check is done even for credit transfers because of potential reverts.
+\item A time-out is required to kick out long pending credit transfers. The second bullet of step 3 describes this procedure. The idea is to move out the expired user-level credit transfers, convert them into user-level reverts on the sender shard, thus achieving a fixed size for $outstandingCredits$ datastructure.
+\item No locking / blocking.
+\item No constraint on the block proposer to pick specific transactions or to order them.
+\item Atomicity of a cross-shard transfer.
+\item {\bf Demerit.} In every block, a BP has to get the outstanding credits and reverts from every other shard. This is inherited from the netted balance approach, where a BP requires the netted balances from all shards. However, in the EE-level netted-balance approach the querying is restricted to the sender EE's that are derived from the user-level transactions included in the block. The problem is aggravated here, because we need to query from all EE's, even for the EE's not touched in this block.
+\end{enumerate}
 
-BitFieldMap
-The datastructure *BitFieldMap* is stored in the shard state to protect against replays of credit transfers and to time-out credit transfers. It is a map from a block number to a set of elements of the form $(t_i \mapsto b_i)$, where the block number identifies the block on the sender shard where a cross-shard debit transfer $t_i$ happened, and $b_i$ is a bit initially set to 0.  
-- *BitCheck*($t_i$) returns true when there is $(t_i \mapsto 0)$ for any block number. Because transaction identifiers are unique, a transaction appears only once in *BitFieldMap*. Zero indicates that the credit is not processed yet. One indicates that the credit is already processed. If no entry is present, then this is an invalid credit and false is returned.
-- *SetBit*($t_i$) sets the bit for $t_i$ to 1 for the block number that is already existing. 
+% BitFieldMap
+% The datastructure *BitFieldMap* is stored in the shard state to protect against replays of credit transfers and to time-out credit transfers. It is a map from a block number to a set of elements of the form $(t_i \mapsto b_i)$, where the block number identifies the block on the sender shard where a cross-shard debit transfer $t_i$ happened, and $b_i$ is a bit initially set to 0.  
+% - *BitCheck*($t_i$) returns true when there is $(t_i \mapsto 0)$ for any block number. Because transaction identifiers are unique, a transaction appears only once in *BitFieldMap*. Zero indicates that the credit is not processed yet. One indicates that the credit is already processed. If no entry is present, then this is an invalid credit and false is returned.
+% - *SetBit*($t_i$) sets the bit for $t_i$ to 1 for the block number that is already existing. 
 
-A *timeBound* is required to kick out long pending credit transfers. The second bullet of step 2 describes this procedure. The idea is to move the expired user-level credit transfers as user-level reverts on the sender shard, and achieves a fixed size for *BitFieldMap*.
+% A *timeBound* is required to kick out long pending credit transfers. The second bullet of step 2 describes this procedure. The idea is to move the expired user-level credit transfers as user-level reverts on the sender shard, and achieves a fixed size for *BitFieldMap*.
 
-A *timeBound* is required to kick out long pending credit transfers. The second bullet of step 3 describes this procedure. The idea is to move the expired user-level credit transfers as user-level reverts on the sender shard, and achieves a fixed size for *BitFieldMap*.
 
-Processing Revert Transfers
-A revert transfer is placed in the shared portion of the EE-level state when either the corresponding credit transfer fails or expires. It is stored in the local shard state, but in the portion that is reserved for the sender shard. The step 4 collects all the portions and processes the user-level reverts. 
+% Processing Revert Transfers
+% A revert transfer is placed in the shared portion of the EE-level state when either the corresponding credit transfer fails or expires. It is stored in the local shard state, but in the portion that is reserved for the sender shard. The step 4 collects all the portions and processes the user-level reverts. 
 
-Note that the EE-level revert happens on the recipient shard in the same block where the credit transfer fails or expires. However, the user-level revert happens in the very next slot on the sender shard. This technique pushes the revert to the EE host functions instead of treating them as separate transactions. This avoids complex issues like revert timeouts and revert gas pricing.
-
-Benefits
-- No locking / blocking.
-- No constraint on the block proposer to pick specific transactions or to order them.
-- Atomicity
-
-Demerits
-In every block, a BP has to get the outstanding credits and reverts from every other shard. This is inherited from the netted balance approach, where a BP requires the netted balances from all shards. However, it is restricted to the sender EE's that are derived from the user-level transactions included in the block. The problem is aggravated here, because we would need to request from all EE's, even for the EE's not touched in this block.
+% Note that the EE-level revert happens on the recipient shard in the same block where the credit transfer fails or expires. However, the user-level revert happens in the very next slot on the sender shard. This technique pushes the revert to the EE host functions instead of treating them as separate transactions. This avoids complex issues like revert timeouts and revert gas pricing.
 
 \section{Scenarios}
 \subsection{Optimistic case}
