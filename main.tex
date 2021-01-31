@@ -105,6 +105,7 @@ For every EE $E$, the shard state contains the $EETransferAmount$ that bookkeeps
 For every user of every EE, the shard state also stores the user's balance. We use $s.userBalance[E,a]$ to denote the balance of user $a$ of EE $E$ on shard $s$. Because the primary purpose of the shards is to divide the content, the users' balances are not distributed. Users are typically assigned a shard.
 
 \subsection{Block Proposer Algorithm}
+\label{sec:BP}
 We now present the main contribution: the algorithm for the block proposer in handling cross-shard cross-EE transfers with the guarantee of atomicity. As previously mentioned, the idea is to split a cross-shard transfer into a debit and a credit. First, a debit transaction is processed at the source shard, and the EE-level transfer is fully effected. If successful, the corresponding user-level credit transaction is queued on to the destination shard, which is processed in a subsequent block. If the credit fails, then we do the EE-level revert and user-level reverts NOT as separate transactions but as enshrined execution processing. 
 
 Without loss of generality, assume that a Block Proposer (BP) is proposing a block numbered $k$ on shard $s_1$. Then BP executes the following steps for every EE $E_i$. 
@@ -183,7 +184,7 @@ Let us visit some of the notable features of the above algorithm.
 \item A time-out is required to kick out long pending credit transfers. The second bullet of step 3 describes this procedure. The idea is to move out the expired user-level credit transfers, convert them into user-level reverts on the sender shard, thus achieving a fixed size for $outstandingCredits$ datastructure.
 \item No locking / blocking.
 \item No constraint on the block proposer to pick specific transactions or to order them.
-\item Atomicity of a cross-shard transfer.
+\item {\bf Main goal.} Atomicity of a cross-shard transfer.
 \item {\bf Demerit.} In every block, a BP has to get the outstanding credits and reverts from every other shard. This is inherited from the netted balance approach, where a BP requires the netted balances from all shards. However, in the EE-level netted-balance approach the querying is restricted to the sender EE's that are derived from the user-level transactions included in the block. The problem is aggravated here, because we need to query from all EE's, even for the EE's not touched in this block.
 \end{enumerate}
 
@@ -201,16 +202,35 @@ Let us visit some of the notable features of the above algorithm.
 % Note that the EE-level revert happens on the recipient shard in the same block where the credit transfer fails or expires. However, the user-level revert happens in the very next slot on the sender shard. This technique pushes the revert to the EE host functions instead of treating them as separate transactions. This avoids complex issues like revert timeouts and revert gas pricing.
 
 \section{Scenarios}
-\subsection{Optimistic case}
-\includegraphics[scale=0.5]{OptmisiticCase.jpg}
-\subsection{When Debit fails}
-\includegraphics[scale=0.5]{Credit-2.jpg}
-\subsection{When Credit fails}
-\includegraphics[scale=0.5]{Debit.jpg}
+In this section, we apply the algorithm from Section~\ref{sec:BP} in different kinds of representative scenarios and show how atomicity is preserved.
 
-Future work
-* Optimise the space requirement for storing outstanding credits and outstanding reverts.
-* Explore caching for optimising the reads of partStates of every EE of every other shard in every block (related to the above mentioned demerit).
+Assume that $a_1, a_2, a_3$ are users on $(s_1,E_1)$ and $b_1,b_2,b_3$ are users on $(s_2,E_2)$.
+
+\subsection{Optimistic case}
+Let us look at the optimistic case, where everything happens as expected. Suppose we include three cross-shard transactions as shown in Figure~\ref{fig:optimistic} in a block on the shard $s_1$. In the very next block on $s_2$, the $s_2.outstandingCredits$ is updated with 3 pending credit transactions. In the same block or subsequently in some block on $s_2$ these credit transactions are processed. 
+
+Note that the EE-level transfers are complete at the $s_1$'s block itself. The $s_2$'s block could process the credit transactions all in the same block or in different blocks. The blocks processing the credit transfers could include new cross-shard transactions as shown in Figrue~\ref{fig:optimistic} or other intra-shard transactions.
+
+\begin{figure}[h]
+	\includegraphics[scale=0.4]{OptmisiticCase.jpg}
+	\caption{Optimistic case\label{fig:optimistic}}
+\end{figure}
+
+\subsection{When credit fails}
+Let us look at the case when the processing of a credit transaction fails. Consider a slight variation from the above scenario, where the credit transaction $a_3 \stackrel{30}{\longrightarrow} b_3$ fails or is expired. Then in the same block the EE-level revert happens (with $E_1$ getting its $30$ \eth back), and finally in the very next block on $s_1$ the user-level reverts are processed.
+
+\begin{figure}[h]
+	\includegraphics[scale=0.4]{Credit.jpg}
+	\caption{When credit fails\label{fig:credit}}
+\end{figure}
+
+\subsection{When debit fails}
+Consider the case when the initial debit transaction fails. This is a very simple case, as nothing needs to be done. Simply this transaction has to be resubmitted as in the case of Ethereum 1.
+
+\begin{figure}[h]
+	\includegraphics[scale=0.4]{Debit.jpg}
+	\caption{When debit fails\label{fig:debit}}
+\end{figure}
 
 \section{Threat Analysis of a Byzantine Block Proposer}
 \label{sec:threat}
@@ -244,6 +264,9 @@ his / her block will be invalidated by the attesters, assuming that the two-thir
 Also, in the discussion, @saltiniroberto pointed out that BitFieldMap is more of a set rather than a map to bits. It can be replaced by a set, where BitCheck checks membership and SetBit removes the element from the set.
 
 \section{Conclusion}
+Future work
+* Optimise the space requirement for storing outstanding credits and outstanding reverts.
+* Explore caching for optimising the reads of partStates of every EE of every other shard in every block (related to the above mentioned demerit).
 
 \section*{Acknowledgements}
 We thank Roberto Saltini, Peter Robinson, Nicholas Liochon and David Hyland-Wood for all the insightful discussions.
