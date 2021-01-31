@@ -23,7 +23,7 @@ The problem of transferring value from a user $X$ of EE $A$ to another user $Y$ 
     \item the transfer of \eth from EE $A$ to EE $B$, and
     \item the transfer of values from the user $X$ to user $Y$.
 \end{enumerate}
-Note that Ethereum 2 has 64 shards. So, the execution enviornments and users of them are distributed across multiple shards. So, the actual problem is the cross-shard cross-EE atomic \eth transfers across users.
+Note that Ethereum 2 has 64 shards. So, the execution enviornments and users of them are distributed across multiple shards. So, the actual problem is the cross-shard cross-EE atomic \eth transfers across users. [[Tell something about Beacon chain and crosslinks]]
 
 Vitalik Buterin proposed a {\em netted balance approach} (\cite{netted-balance}) for atomic cross-shard transfer of \eth between EEs. This paper proposes user-level atomic cross-shard transfer on top of this netted balance approach of EE-level transfers.
 
@@ -71,16 +71,26 @@ A cross-shard transfer of $x$ \eth from an user $a_i$ on $(s_1,E_1)$ to an user 
 <<TODO: Why signing is not necessary?>>
 
 \subsection{Shard State}
-In the netted-balance approach the storage of part-balances of single EE on shards can be seen as a tuple (or a row) indexed by shards. The part-balances of different EE's can be seen as a matrix $partBalance$ of size number of shards $\times$ number of EE's. Here, $partBalance[s_i,E_j]$ gives the part-balance of EE $E_j$ on shard $s_i$. Every shard stores this  $partBalance$ matrix in its state. The real balance of EE $E_j$ on shard $s_i$ is given by : 
+In the netted-balance approach, each shard $s$ stores the part-balances of every EE on every shard. It can then be seen as a matrix, say $s.partBalance$ of size number of shards $\times$ number of EE's. Here, $s.partBalance[s_i,E_j]$ gives the part-balance of EE $E_j$ on shard $s_i$ in shard $s$. The real balance of EE $E_j$ on shard $s_i$ is given by : 
 \[
-	realBalance[s_i,E_j] = \sum_k s_k.partBalance[s_k,E_j].
+	realBalance[s_i,E_j] = \sum_k s_k.partBalance[s_i,E_j].
 \]
 
-Our approach expands this $partBalance$ matrix to a $partState$ matrix, where each cell of this matrix is now a triple of $(partBalance$, $toBeImportedCredits$, $toBeImportedReverts)$. In other words, we add two extra pieces of information on top of $partBalance$, i.e., $toBeImportedCredits$ and $toBeImportedReverts$, as shown in Figure~\ref{fig:shardstate}.
+We introduce more elements on top of part balances in the shard state, and we use the name $partState$ matrix in place of $partBalance$ matrix. Each cell of this matrix has:
+\begin{itemize}
+	\item $partBalance$ (as in netted-balance approach),
+	\item $credits$, the set of cross-shard credit transactions that needs to be imported,
+	\item $reverts$, the set of cross-shard revert transactions that needs to be effected.
+\end{itemize}
+This arrangement is shown in Figure~\ref{fig:shardstate}.
 
-- Bitfield map - Credits map. Explain BitCheck or membership check.
-  
-- Explain timeBound in terms of blocks bound
+As shown in the Figure~\ref{fig:shardstate}, the shard state contains a map called $outstandingCredits$. At the time of processing a block $k$ on shard $s$, for every EE $E$, $outstandingCredits$ stores the outstanding credit transactions targeted to $(s,E)$ from a shard $s'$ and an EE $E'$ whose corresponding debit transactions were successfully processed in the previous block at shard $s'$. So, we have:
+\[
+	s.outstandingCredits[E](s', E', k-1) = {e | e \in s'.partState[s,E].credits}
+\]
+There are two ways to remove an entry from $s.outstandingCredits$. One, is by the successful proccessing of the credit transfer transaction, the other is when we {\em time-out} processing of the credit transfer. The time-out is required to guarantee a bound on the transfer time. Typically time-outs are specified in terms of number of blocks.
+
+For every EE $E$, the shard state also contains the $revertsAmount$ that bookkeeps the net amount to be reverted at EE-level.
 
 \begin{figure}[h]
 \includegraphics[scale=0.5]{state.jpg}
@@ -88,15 +98,17 @@ Our approach expands this $partBalance$ matrix to a $partState$ matrix, where ea
 \end{figure}
 
 \subsection{Block Proposer Algorithm}
-We now present the main contribution: the algorithm for the block proposer in handling cross-shard cross-EE transfers with the guarantee of atomicity. Without loss of generality we assume that a Block Proposer (BP) is proposing a block numbered $k$ on shard $s_1$. Then BP executes the following steps for every EE $E_i$. 
+We now present the main contribution: the algorithm for the block proposer in handling cross-shard cross-EE transfers with the guarantee of atomicity. The idea is to split a cross-shard transfer into a debit and a credit. First, a debit transaction is processed at the source shard, and the EE-level transfer is fully effected. If successful, the corresponding user-level credit transaction is queued on to the destination shard, which is processed in a subsequent block. If the credit fails, then we do the EE-level revert and user-level reverts NOT as a separate transaction but as an enshrined execution processing. 
+
+Without loss of generality we assume that a Block Proposer (BP) is proposing a block numbered $k$ on shard $s_1$. Then BP executes the following steps for every EE $E_i$. 
 
 \begin{enumerate}
-\item Obtain the part states of $E_i$ from every shard. Ensure that the obtained $s_i.partState$s,  $1 \le i \le n$, are correct using Merkle Proofs and crosslinks.
+\item {\bf Initialisation.} Obtain the part states of $E_i$ from every shard. Ensure that the obtained $s_i.partState$s,  $1 \le i \le n$, are correct using Merkle Proofs and crosslinks.
 Compute the real balance of $E_i$ on $s_1$ using 
 \[
 	realBalance(s_1,E_i) = \sum_i s_i.partState[s_1,E_i].balance.
 \]
-Maintain a $revertsAmount$ map from every shard $s$ and EE $E$ to number.  Initialise every value of this map to $0$, i.e., for every shard $s$ and every EE $E$, we have $revertsAmount(s,E) = 0$;  
+Bookkeep a $revertsAmount$ for every shard $s$ and EE $E$.  Initialise this $revertsAmount$ to $0$, i.e., for every shard $s$ and every EE $E$, we have $revertsAmount(s,E) = 0$;  
 
 \item Update $\bitfieldmap$
     \begin{itemize}
@@ -114,29 +126,43 @@ Maintain a $revertsAmount$ map from every shard $s$ and EE $E$ to number.  Initi
 	    \item Update $reverts := \bigcup_i s_i.partState[s_1,E_i].reverts$
 	    \item For each $t_i \in reverts$, $sender(t_i).balance += x_i$.
     \end{itemize}
+\item {\bf Reset.} For every pair $(s_2,E_j)$, reset the following.
+\begin{itemize}
+	\item $s_1.partState[s_2,E_j].credits = \emptyset$
+	\item $s_1.partState[s_2,E_j].reverts = \emptyset$
+\end{itemize}
 \item For every pair $(s_2,E_j)$
     \begin{enumerate}
-	\item Select transactions $t_1,\ldots,t_n$ to be included in the block
-	\item $s_1$.partState[$s_2,E_j$].credits = $\emptyset$;  $~~s_1$.partState[$s_2,E_j$].reverts = $\emptyset$; 
-	\item For every $i$ in 1 ... n: 
-		- If $t_i : a_i \stackrel{x_i}{\Longrightarrow} b_i$ AND realBalance($s_1,E_i$) > net($s_2,E_j$) + $x_i$
-			- include $t_i$ to the block
-			- if $t_i$ executes successfully 
-				- balance($a_i$) -= $x_i$ (implied with successful execution of $t_i$)
-				- net($s_2,E_j$) += $x_i$
-				- emit **ToCredit**($a_i, x_i, b_i$) System Event
-				- $s_1$.partState[$s_2,E_j$].credits $~ \cup= ~$ {$t_i$};
-		- Else if $t_i : b_i \stackrel{x_i}{\longrightarrow} a_i$ AND Merkle Proof check of **ToCredit** System Event passes AND realBal($s_1,E_i$) > net($s_2,E_j$) + $x_i$
-			- if *expired*($t_i$) OR *BitCheck($t_i$)* fails
-				- delete $t_i$ from transaction pool
-			- else 
-				- include $t_i$ to the block
-				- *SetBit*($t_i$);
-				- if $t_i$ executes successfully
+	\item Select cross-shard transactions $t_1,\ldots,t_n$ from $(s_1,E_i)$ to $(s_2,E_j)$ to be included in the block. Can it from the ReservedCredits / BitFieldMap also?
+	\item For every $i \in \{1, \ldots, n\}$: 
+		\begin{itemize}
+		\item If $t_i : a_i \stackrel{x_i}{\Longrightarrow} b_i$ AND realBalance($s_1,E_i$) > net($s_2,E_j$) + $x_i$
+		\begin{itemize}
+			\item include $t_i$ to the block
+			\item if $t_i$ executes successfully 
+			\begin{itemize}
+				\item balance($a_i$) -= $x_i$ (implied with successful execution of $t_i$)
+				\item net($s_2,E_j$) += $x_i$
+				\item emit \tocredit($a_i, x_i, b_i$) System Event
+				\item $s_1$.partState[$s_2,E_j$].credits $~ \cup= ~$ {$t_i$};
+			\end{itemize}
+		\end{itemize}
+		\item Else if $t_i : b_i \stackrel{x_i}{\longrightarrow} a_i$ AND Merkle Proof check of **ToCredit** System Event passes AND realBal($s_1,E_i$) > net($s_2,E_j$) + $x_i$
+		\begin{itemize}
+			\item if *expired*($t_i$) OR *BitCheck($t_i$)* fails
+				 delete $t_i$ from transaction pool
+			\item else 
+			\begin{itemize}
+				\item include $t_i$ to the block
+				\item *SetBit*($t_i$);
+				\item if $t_i$ executes successfully
 					- bal($a_i$) += $x_i$; (implied with successful execution of $t_i$)
-				- if failure 
+				\item if failure 
 					- $s_1$.partState[$s_2,E_j$].reverts $~~\cup=~$ {$t_i$};
 					- net($s_2,E_j$) += $x_i$ 
+			\end{itemize}
+		\end{itemize}
+	\end{itemize}
 	\item Update EE-level transfer
 		- $s_1$.partState[$s_1,E_i$].balance -= net($s_2,E_j$); 
 		- $s_1$.partState[$s_2,E_j$].balance += net($s_2,E_j$);
