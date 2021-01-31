@@ -2,7 +2,8 @@
 \usepackage{url, graphicx}
 
 \title{Algorithm for Cross-shard Cross-EE Atomic User-level \eth Transfer in Ethereum 2}
-\author{Raghavendra Ramesh}
+\author{Raghavendra Ramesh\\Consensys Software R \& D\\raghavendra.ramesh@consensys.net}
+\date{}
 
 \newcommand{\eth}[0]{ETH~}
 \newcommand{\tocredit}[0]{{\bf ToCredit}~}
@@ -12,18 +13,20 @@
 
 \maketitle
 
+\section*{Abstract}
+We address the problem of atomic cross shard value transfer in Ethereum 2. We leverage on Ethereum 2 architecture, more specificially on Beacon chain and crosslinks, and propose a solution on top of the netted-balance approach that was proposed for EE-level atomic \eth transfers. We split a cross-shard transfer into two transactions: a debit and a credit. First, the debit transaction is processed at the source shard. The corresponding credit transaction is processed at the destination shard in a subsequent block. We discuss various scenarios of debit failures and credit failures, and show our approach ensures atomicity.
+
 \section{Introduction}
 
-The execution in Ethereum 1 happens in a fixed fashion using EVM and fixed notion of account id and balances. The plan is to generalise this notion of execution environment (EE) in Ethereum 2. For instance, an environment similar to Bitcoin can be hosted on Ethereum 2 as one execution environment.  Some EEs could use another virtual machine instead of EVM. In such a scenario, the cross-shard cross execution environment \eth transfers become necessary. This paper presents an algorithm for atomic user-level \eth transfers between two execution environments hosted on two different shards.
+Ethereum 2 is planned to have 64 shards. The blocks on the shard chains synchronise with the Beacon chain using crosslinks. The crosslinks are the stateroots (root of Merkle tree of the shard state), and provide a means to validitate the integrity of a shard state on another shard. 
 
-Because one execution environment is complete in its own means, we need to maintain \eth balances of each of these execution environments separately. An EE could provide another currency on top of \eth. Users are associated with EEs in the sense that an EE serves as a home for multiple users. So, we will have EE's, their \eth balances, users inside EE's and users' balances.
+The execution in Ethereum 1 happens in a fixed fashion using EVM and fixed notion of account id and balances. The plan is to generalise this notion of execution environment (EE) in Ethereum 2. For instance, an environment similar to Bitcoin can be hosted on Ethereum 2 as one EE.  Some EEs could use another virtual machine instead of EVM. The EEs and users of them are distributed across multiple shards. In such a scenario, the cross-shard cross EE \eth transfers become necessary. This paper presents an algorithm for atomic user-level \eth transfers between two EEs hosted on two different shards.
 
-The problem of transferring value from a user $X$ of EE $A$ to another user $Y$ of another EE $B$ involves two aspects:
+Because one execution environment is complete in its own means, we need to maintain \eth balances of each of these execution environments separately. An EE could provide another currency on top of \eth. Users are associated with EEs in the sense that an EE serves as a home for multiple users. The problem of transferring value from a user $a$ of EE $E_1$ to another user $b$ of another EE $E_2$ involves two aspects:
 \begin{enumerate}
-    \item the transfer of \eth from EE $A$ to EE $B$, and
-    \item the transfer of values from the user $X$ to user $Y$.
+    \item the transfer of \eth from EE $E_1$ to EE $E_2$, and
+    \item the transfer of values from the user $a$ to user $b$.
 \end{enumerate}
-Note that Ethereum 2 has 64 shards. So, the execution enviornments and users of them are distributed across multiple shards. So, the actual problem is the cross-shard cross-EE atomic \eth transfers across users. [[Tell something about Beacon chain and crosslinks]]
 
 Vitalik Buterin proposed a {\em netted balance approach} (\cite{netted-balance}) for atomic cross-shard transfer of \eth between EEs. This paper proposes user-level atomic cross-shard transfer on top of this netted balance approach of EE-level transfers.
 
@@ -62,40 +65,39 @@ In our approach, we use one System Event message called \tocredit, which include
 
 \subsection{Transactions}
 
-A cross-shard transfer of $x$ \eth from an user $a_i$ on $(s_1,E_1)$ to an user $b_i$ on $(s_2,E_2)$ is split by the system into two transactions in a natural way: a cross-shard debit transfer ($\Longrightarrow$) and a cross-shard credit transfer ($\longrightarrow$), corresponding to deducting $x$ on the source side and adding $x$ to the destination side respectively. 
+A cross-shard transfer of $x$ \eth from an user $a_i$ on $(s_1,E_1)$ to an user $b_i$ on $(s_2,E_2)$ is split by our system into two transactions in a natural way: a cross-shard debit transfer ($\Longrightarrow$) and a cross-shard credit transfer ($\longrightarrow$), corresponding to deducting $x$ on the source side and adding $x$ to the destination side respectively. 
 
 {\bf Cross-shard debit transfer} transaction is signed by the sender $a_i$, and the signature is stored in the fields $v, r$ and $s$ as in Ethereum 1. It contains a unique transaction identifier. It is submitted on sender shard, and emits a \tocredit System event on success.
 
 {\bf Cross-shard credit transfer} transaction is submitted on recipient shard, and includes the \tocredit System Event and the Merkle Proof for it.
 
-<<TODO: Why signing is not necessary?>>
+[[ What does \tocredit system event contain]]
 
 \subsection{Shard State}
-In the netted-balance approach, each shard $s$ stores the part-balances of every EE on every shard. It can then be seen as a matrix, say $s.partBalance$ of size number of shards $\times$ number of EE's. Here, $s.partBalance[s_i,E_j]$ gives the part-balance of EE $E_j$ on shard $s_i$ in shard $s$. The real balance of EE $E_j$ on shard $s_i$ is given by : 
+In the netted-balance approach, each shard $s$ stores the part-balances of every EE on every shard. It can then be seen as a matrix, say $s.partBalance$ of size number of shards $\times$ number of EE's. Here, $s.partBalance[s_i,E_j]$ gives the part-balance of EE $E_j$ on shard $s_i$, which is recorded at shard $s$. The real balance of EE $E_j$ on shard $s_i$ is given by : 
 \[
 	realBalance[s_i,E_j] = \sum_k s_k.partBalance[s_i,E_j].
 \]
 
-We introduce more elements on top of part balances in the shard state, and we use the name $partState$ matrix in place of $partBalance$ matrix. Each cell of this matrix has:
+We introduce more elements on top of part balances in the shard state, and we use the name $partState$ matrix in place of $partBalance$ matrix. Each cell of this matrix has 3 elements, as shown in Figure~\ref{fig:shardstate}. They are:
 \begin{itemize}
 	\item $partBalance$ (as in netted-balance approach),
-	\item $credits$, the set of cross-shard credit transactions that needs to be imported,
+	\item $credits$, the set of cross-shard credit transactions that needs to be imported on the destination shard,
 	\item $reverts$, the set of cross-shard revert transactions that needs to be effected.
 \end{itemize}
-This arrangement is shown in Figure~\ref{fig:shardstate}.
 
-As shown in the Figure~\ref{fig:shardstate}, the shard state contains a map called $outstandingCredits$. At the time of processing a block $k$ on shard $s$, for every EE $E$, $outstandingCredits$ stores the outstanding credit transactions targeted to $(s,E)$ from a shard $s'$ and an EE $E'$ whose corresponding debit transactions were successfully processed in the previous block at shard $s'$. So, we have:
+\begin{figure}[h]
+	\includegraphics[scale=0.5]{state.jpg}
+	\caption{Shard State\label{fig:shardstate}}
+\end{figure}
+	
+The shard state contains a map called $outstandingCredits$. At the time of processing a block $k$ on shard $s$, for every EE $E$, $s.outstandingCredits$ adds the outstanding credit transactions targeted to $(s,E)$ from a shard $s'$ and an EE $E'$ whose corresponding debit transactions were successfully processed in the immediately previous block at shard $s'$. So, we have:
 \[
-	s.outstandingCredits[E](s', E', k-1) = {e | e \in s'.partState[s,E].credits}
+	s.outstandingCredits[E][s', E', k-1] = \{~e ~|~ e \in s'.partState[s,E].credits\}
 \]
 There are two ways to remove an entry from $s.outstandingCredits$. One, is by the successful proccessing of the credit transfer transaction, the other is when we {\em time-out} processing of the credit transfer. The time-out is required to guarantee a bound on the transfer time. Typically time-outs are specified in terms of number of blocks.
 
 For every EE $E$, the shard state also contains the $revertsAmount$ that bookkeeps the net amount to be reverted at EE-level.
-
-\begin{figure}[h]
-\includegraphics[scale=0.5]{state.jpg}
-\caption{Shard State\label{fig:shardstate}}
-\end{figure}
 
 \subsection{Block Proposer Algorithm}
 We now present the main contribution: the algorithm for the block proposer in handling cross-shard cross-EE transfers with the guarantee of atomicity. The idea is to split a cross-shard transfer into a debit and a credit. First, a debit transaction is processed at the source shard, and the EE-level transfer is fully effected. If successful, the corresponding user-level credit transaction is queued on to the destination shard, which is processed in a subsequent block. If the credit fails, then we do the EE-level revert and user-level reverts NOT as a separate transaction but as an enshrined execution processing. 
