@@ -18,6 +18,10 @@ We address the problem of atomic cross shard value transfer in Ethereum 2. We le
 
 The benefits of our approach are that we do not use any locks nor impose any constraints on the Block Proposer to select specific transactions. However we inherit the limitation of an expensive operation from the netted-balance approach of querying partial states from all other shards.
 
+\bigskip
+
+{\bf Keywords: cross-shard, Ethereum 2, atomicity, netted-balance}
+
 \section{Introduction}
 
 Ethereum 2 is planned to have 64 shards. The blocks on the shard chains synchronise with the Beacon chain using crosslinks. The crosslinks are the stateroots (root of Merkle tree of the shard state), and provide a means to validitate the integrity of a shard state on another shard. 
