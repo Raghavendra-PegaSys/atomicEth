@@ -7,8 +7,7 @@
 \date{}
 
 \newcommand{\eth}[0]{ETH~}
-\newcommand{\tocredit}[0]{{\bf ToCredit}~}
-\newcommand{\bitfieldmap}[0]{\ensuremath{BitFieldMap}~}
+\newcommand{\tocredit}[0]{{\bf ToCredit}}
 
 \begin{document}
 
@@ -63,6 +62,7 @@ In our approach, we use one System Event message called \tocredit, which include
 \item the block number of the shard block where this event is emitted, and 
 \item an index number starting from 0 (for every block).
 \end{itemize}
+We use \tocredit($a,x,b$) to denote a system event with sender details of user $a$, the transfer amount $x$, and the receipient details of the user $b$, and elide the block number and the index number when they are obvious from the context.
 
 \subsection{Transactions}
 
@@ -98,7 +98,7 @@ The $k-1$ in the equation indicates that the corresponding debit transactions we
 
 There are two ways to remove an entry from $s.outstandingCredits$. One, is by the successful proccessing of the credit transfer transaction, the other is when we {\em time-out} processing of the credit transfer. The time-out is required to guarantee a bound on the transfer time. Typically time-outs are specified in terms of number of blocks.
 
-For every EE $E$, the shard state contains the $revertsAmount$ that bookkeeps the net amount to be reverted at EE-level.
+For every EE $E$, the shard state contains the $EETransferAmount$ that bookkeeps the net amount to be transferred at EE-level.
 
 For every user of every EE, the shard state also stores the user's balance. We use $s.userBalance[E,a]$ to denote the balance of user $a$ of EE $E$ on shard $s$. Because the primary purpose of the shards is to divide the content, the users' balances are not distributed. Users are typically assigned a shard.
 
@@ -113,62 +113,59 @@ Compute the real balance of $E_i$ on $s_1$ using
 \[
 	realBalance[s_1,E_i] = \sum_n s_n.partState[s_1,E_i].balance.
 \]
-Set for every shard $s$ and every EE $E$, $s_1.revertsAmount(s,E)$ to $0$.
+For every shard $s$ and every EE $E$, set $s_1.EETransferAmount[s,E]$ to $0$.
 
-\item {\bf Update} $s_1.outstandingCredits$
+\item {\bf Preprocess pending credits}
     \begin{itemize}
-        \item Add entries: 
+        \item Add entries to $s_1.outstandingCredits$
         $[s', E', (k-1)] \mapsto \bigcup_n s_n.partState[s_1,E_i].credits$
-        \item Kick out expired credits: If there is an entry with $[s',E',k']$ such that $k' + timeOut == k$ then do:
+        \item Kick out expired credits from $s_1.outstandingCredits$. If there is an entry with $[s',E',k']$ such that $k' + timeOut == k$ then do:
         \begin{itemize}
             \item $s_1.partState[s',E'].reverts := s.outstandingCredits[s', E', k']$.
             \item Delete the entry with $[s', E', k']$.
-			\item $s_1.revertsAmount[s',E'] := \sum_r x_r$ where $r \in s_1.partState[s',E'].reverts$ and $x_r$ denotes $r$'s transfer amount.
+			\item $s_1.EETransferAmount[s',E'] := \sum_r x_r$ where \\
+			$r \in s_1.partState[s',E'].reverts$ and $x_r$ denotes $r$'s transfer amount.
         \end{itemize}
 	\end{itemize}
 	
-\item {\bf Process user-level reverts}. For every $r \in \bigcup_i s_i.partState[s_1,E_i].reverts$, $s_1.userBalance[E_i,sender(r)] += x_r$, where $x_r$ denotes $r$'s transfer amount.
-\item 
-\item {\bf Reset.} For every pair $(s_2,E_j)$, reset the following.
-\begin{itemize}
-	\item $s_1.partState[s_2,E_j].credits = \emptyset$
-	\item $s_1.partState[s_2,E_j].reverts = \emptyset$
-\end{itemize}
-\item For every pair $(s_2,E_j)$
+\item {\bf Process user-level reverts}. For every $r \in s_1.partState[s_1,E_i].reverts$, $s_1.userBalance[E_i,sender(r)] += x_r$, where $x_r$ denotes $r$'s transfer amount. After this operation, $s_1.partState[s_1,E_i].reverts$ is set to $\emptyset$.
+
+% \item {\bf Reset.} For every pair $(s_2,E_j)$, reset the following.
+% \begin{itemize}
+% 	\item $s_1.partState[s_2,E_j].credits = \emptyset$
+% 	\item $s_1.partState[s_2,E_j].reverts = \emptyset$
+% \end{itemize}
+
+\item {\bf Process transactions.} For every pair $(s_2,E_j)$
     \begin{enumerate}
-	\item Select cross-shard transactions $t_1,\ldots,t_n$ from $(s_1,E_i)$ to $(s_2,E_j)$ to be included in the block. Can it from the ReservedCredits / BitFieldMap also?
-	\item For every $i \in \{1, \ldots, n\}$: 
+	\item Select cross-shard transactions $t_1,\ldots,t_m$ between $(s_1,E_i)$ and $(s_2,E_j)$ to be included in the block. It can be a new transaction from the transaction pool, or a credit transaction from $s_1.outstandingCredits[s_2,E_j]$. 
+	
+	\item For every $n \in \{1, \ldots, m\}$: 
 		\begin{itemize}
-		\item If $t_i : a_i \stackrel{x_i}{\Longrightarrow} b_i$ AND realBalance($s_1,E_i$) > net($s_2,E_j$) + $x_i$
+		\item If $t_n$ is a cross-shard debit transaction of the form $a_n \stackrel{x_n}{\Longrightarrow} b_n$ and $realBalance(s_1,E_i) > s_1.EETransferAmount(s_2,E_j) + x_n$
 		\begin{itemize}
-			\item include $t_i$ to the block
-			\item if $t_i$ executes successfully 
+			\item include $t_n$ to the block,
+			\item if $t_n$ executes successfully 
 			\begin{itemize}
-				\item balance($a_i$) -= $x_i$ (implied with successful execution of $t_i$)
-				\item net($s_2,E_j$) += $x_i$
-				\item emit \tocredit($a_i, x_i, b_i$) System Event
-				\item $s_1$.partState[$s_2,E_j$].credits $~ \cup= ~$ {$t_i$};
+				\item $s_1.userBalance(E_i,a_n)$ -= $x_n$ (implied with successful execution of $t_n$)
+				\item $s_1.EETransferAmount[s_2,E_j] += x_n$
+				\item emit \tocredit($a_n, x_n, b_n$) System Event
+				\item $s_1.partState[s_2,E_j].credits ~ \cup= ~ \{a_n \stackrel{x_n}{\longrightarrow} b_n\}$
 			\end{itemize}
 		\end{itemize}
-		\item Else if $t_i : b_i \stackrel{x_i}{\longrightarrow} a_i$ AND Merkle Proof check of **ToCredit** System Event passes AND realBal($s_1,E_i$) > net($s_2,E_j$) + $x_i$
+		\item Else if $t_i$ is a cross-shard credit transaction of the form $b_n \stackrel{x_n}{\longrightarrow} a_n$ AND Merkle Proof check of the included \tocredit~ System Event passes AND $realBalance(s_1,E_i) > s1.EETransferAmount(s_2,E_j) + x_n$
 		\begin{itemize}
-			\item if *expired*($t_i$) OR *BitCheck($t_i$)* fails
-				 delete $t_i$ from transaction pool
-			\item else 
-			\begin{itemize}
-				\item include $t_i$ to the block
-				\item *SetBit*($t_i$);
-				\item if $t_i$ executes successfully
-					- bal($a_i$) += $x_i$; (implied with successful execution of $t_i$)
-				\item if failure 
-					- $s_1$.partState[$s_2,E_j$].reverts $~~\cup=~$ {$t_i$};
-					- net($s_2,E_j$) += $x_i$ 
-			\end{itemize}
+			\item include $t_n$ to the block
+			\item Remove $t_n$ from $s_1.outstandingCredits[s_2,E_j,k']$ where the block number $k'$ is derived from the included \tocredit ~System Event.
+			\item if $t_n$ executes successfully then $s_1.usersBalance[E_i,a_n] += x_n$ (implied by the successful execution of $t_n$)
+			\item if it fails \\
+			$s_1.partState[s_2,E_j].reverts ~\cup=~ \{(b_n,x_n,a_n)\}$\\
+			$s_1.EETransferAmount[s_2,E_j] += x_n$.
 		\end{itemize}
 	\end{itemize}
-	\item Update EE-level transfer
-		- $s_1$.partState[$s_1,E_i$].balance -= net($s_2,E_j$); 
-		- $s_1$.partState[$s_2,E_j$].balance += net($s_2,E_j$);
+	\item Process EE-level transfer\\
+		$s_1.partState[s_1,E_i].balance -= s1.EETransferAmount[s_2,E_j]$, \\
+		$s_1.partState[s_2,E_j].balance += s1.EETransferAmount[s_2,E_j]$.
     \end{enumerate}
 \end{enumerate}
 
