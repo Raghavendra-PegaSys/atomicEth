@@ -14,7 +14,7 @@
 \maketitle
 
 \section*{Abstract}
-We address the problem of atomic cross shard value transfer in Ethereum 2. We leverage on Ethereum 2 architecture, more specificially on Beacon chain and crosslinks, and propose a solution on top of the netted-balance approach that was proposed for EE-level atomic \eth transfers. We split a cross-shard transfer into two transactions: a debit and a credit. First, the debit transaction is processed at the source shard. The corresponding credit transaction is processed at the destination shard in a subsequent block. We use {\em netted} shard states as channels to communicate pending credits and pending reverts. We discuss various scenarios of debit failures and credit failures, and show our approach ensures atomicity. 
+We address the problem of atomic cross shard value transfer in Ethereum 2. We leverage on Ethereum 2 architecture, more specificially on Beacon chain and crosslinks, and propose a solution on top of the netted-balance approach that was proposed for EE-level atomic \eth transfers. We split a cross-shard transfer into two transactions: a debit and a credit. First, the debit transaction is processed at the source shard. The corresponding credit transaction is processed at the destination shard in a subsequent block. We use {\em netted} shard states as channels to communicate pending credits and pending reverts. We discuss various scenarios of debit failures and credit failures, and show our approach ensures atomicity even in the presence of a Byzantine Block proposer. 
 
 The benefits of our approach are that we do not use any locks nor impose any constraints on the Block Proposer to select specific transactions. However we inherit the limitation of an expensive operation from the netted-balance approach of querying partial states from all other shards.
 
@@ -234,39 +234,43 @@ Consider the case when the initial debit transaction fails. This is a very simpl
 
 \section{Threat Analysis of a Byzantine Block Proposer}
 \label{sec:threat}
-Talking with Roberto Saltini (PegaSys, ConsenSys) @saltiniroberto revealed many scenarios, especially the case when a Block Proposer (BP) is Byzantine. A Byzantine Block Proposer (BBP) might choose to deviate from the above algorithm. It becomes clear from the following that the protocol withstands such a BBP.
+Consider the case of a Byzantine Block Proposer (BBP). A BBP might choose to deviate from the above algorithm. It becomes clear from the following that the protocol withstands such a BBP.
 
-Checks done by a Validator / Attester
-Verify that the received part states from other shards for all EEs are correct.
-Verify that the data structure BitFieldMap is populated with the impending credits for this shard.
-Verify that the impending reverts are processed, meaning the sender users are credited with the transfer amount.
-Verify that correct ToCredit System Events are emitted for included and successful cross-shard debit transfer transactions.
-Verify that correct outgoing credit transfers are written to the appropriate shared state.
-Verify that the corresponding bit is set when a cross-shard credit transfer happens successfully.
-Verify that a correct revert transfer is placed for a failed cross-shard credit transfer transaction.
-Check that the correct amount is transferred at the EE-level.
-Because a validator / an attester has access to the current shard state, (s)he can verify points: 2, 3, 5, 6, 7, 8. An attester is also given with the partStates from other shards along with their Merkle Proofs and (s)he has access to crosslinks form the Beacon block. So, (s)he can check points 1 and 8, that is, verify part balances, impending credits and impending reverts. Also because (s)he has access to all the transaction receipts of the transactions included in the block, (s)he can check point 4.
+Let us recollect the checks done by a validator / attester.
+\begin{enumerate}
+\item Verify that the received part states from other shards for all EEs are correct.
+\item Verify that the data structure $outstandingCredits$ is populated with the impending credits for this shard.
+\item Verify that the impending reverts are processed, meaning the sender users are credited with the transfer amount.
+\item Verify that correct \tocredit System Events are emitted for included and successful cross-shard debit transfer transactions.
+\item Verify that correct outgoing credit transfers are written to the appropriate part state.
+\item Verify that the outstanding credit transfer is removed when a cross-shard credit transfer happens successfully.
+\item Verify that a correct revert transfer is placed for a failed cross-shard credit transfer transaction.
+\item Check that the correct amount is transferred at the EE-level.
+\end{enumerate}
+
+Because a validator / an attester has access to the current shard state, (s)he can verify points: 2, 3, 5, 6, 7, 8. An attester is also given with the $partState$s from other shards along with their Merkle Proofs and (s)he has access to crosslinks form the Beacon block. So, (s)he can check points 1 and 8, that is, verify part balances, impending credits and impending reverts. Also because (s)he has access to all the transaction receipts of the transactions included in the block, (s)he can check point 4.
 
 So, if a BBP chooses to
 
-show no or false
-part EE-balances or
-set of impending credits or
-set of reverts, or
-not update or wrongly update BitFieldMap with impending credits, or
-not process or wrongly process impending reverts, or
-not emit or emit with incorrect data the ToCredit System Event
-not $SetBit(t_i)$, or
-not include a revert for a failed credit transaction, or
-not affect appropriate EE-level transfer,
+\begin{itemize}
+	\item show no or false 
+	\begin{itemize}
+		\item part EE-balances or
+		\item set of impending credits or
+		\item set of reverts, or
+	\end{itemize}
+	\item not update or wrongly update $outstandingCredits$ with impending credits, or
+	\item not process or wrongly process impending reverts, or
+	\item not emit or emit with incorrect data the \tocredit System Event
+	\item not include a revert for a failed credit transaction, or
+	\item not affect appropriate EE-level transfer,
+\end{itemize}
 his / her block will be invalidated by the attesters, assuming that the two-thirds of the attesters are honest.
 
-Also, in the discussion, @saltiniroberto pointed out that BitFieldMap is more of a set rather than a map to bits. It can be replaced by a set, where BitCheck checks membership and SetBit removes the element from the set.
-
 \section{Conclusion}
-Future work
-* Optimise the space requirement for storing outstanding credits and outstanding reverts.
-* Explore caching for optimising the reads of partStates of every EE of every other shard in every block (related to the above mentioned demerit).
+We presented an atomic cross-shard cross-EE user-level value transfer algorithm for Ethereum 2 in presence of a Byzantine Block Proposer on top of an existing netted-balance approach for EE-level transfers. 
+
+As part of the future work, we plan to optimise the space requirements for storing outstanding credits and outstanding reverts, and explore caching for optimising the reads of partStates of every EE of every other shard in every block (related to the above mentioned demerit).
 
 \section*{Acknowledgements}
 We thank Roberto Saltini, Peter Robinson, Nicholas Liochon and David Hyland-Wood for all the insightful discussions.
